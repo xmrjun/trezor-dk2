@@ -1,0 +1,14 @@
+header = "D002/boards/stm32u5g9j-dk2.h"
+
+[display]
+driver = "io/display_ltdc_dsi"
+panel = "io/display_panel_stm32u5g9j_dk2"
+
+[backlight]
+driver = "io/backlight_pin"
+
+[touch]
+driver = "io/touch_gt911"
+
+[power_manager]
+driver = "io/power_manager_fixed"
