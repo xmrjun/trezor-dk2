@@ -22,6 +22,7 @@
 #include <trezor_rtl.h>
 
 #include <io/display.h>
+#include <io/gfx_bitblt.h>
 #include <sys/irq.h>
 #include <sys/mpu.h>
 #include <sys/systick.h>
@@ -144,14 +145,23 @@ void display_refresh(void) {
 
 #ifdef PANEL_ROTATED_90
   // The UI keeps drawing into the same buffer, LTDC always scans buffer 0.
-  // Both buffers have to be accessible while copying; a single MPU region
-  // spanning both would overlap other regions in some memory layouts (e.g.
-  // the bootloader), so the MPU is disabled for the duration of the copy.
+  // The source stays mapped as the active framebuffer (MPU region 5), the
+  // destination is mapped by MPU_MODE_FB_COPY (region 6, privileged RW,
+  // non-executable) only for the duration of the copy. A single region
+  // spanning both buffers would overlap other regions in the bootloader.
+  const size_t src_size = DISPLAY_RESX * DISPLAY_RESY * 2;
   uint8_t *src = get_fb_ptr(fb_queue_peek(&drv->empty_frames));
   uint8_t *dst = get_fb_ptr(0);
-  mpu_mode_t mpu_mode = mpu_reconfig(MPU_MODE_DISABLED);
+
+  // DMA2D operations run asynchronously, the frame must be complete
+  gfx_bitblt_wait();
+
+  mpu_set_active_fb(src, src_size);
+  mpu_set_copy_fb(dst, ALIGNED_PHYSICAL_FRAME_BUFFER_SIZE);
+  mpu_mode_t mpu_mode = mpu_reconfig(MPU_MODE_FB_COPY);
   display_rotate_90((const uint16_t *)src, (uint16_t *)dst);
   mpu_restore(mpu_mode);
+  mpu_set_copy_fb(NULL, 0);
   return;
 #endif
 

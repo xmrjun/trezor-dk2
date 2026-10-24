@@ -192,7 +192,13 @@ impl GlyphData {
             '\u{00a0}' => '\u{0020}',
             c => c,
         };
-        let gl_data = self.get_glyph_data(ch as u16);
+        // Glyphs are looked up by 16-bit code point; anything above U+FFFF
+        // must not be truncated onto an unrelated character (e.g. U+24E00
+        // onto U+4E00), so it is shown as non-printable.
+        let gl_data = match u16::try_from(u32::from(ch)) {
+            Ok(codepoint) => self.get_glyph_data(codepoint),
+            Err(_) => self.font.glyph_nonprintable,
+        };
         Glyph::load(gl_data)
     }
 

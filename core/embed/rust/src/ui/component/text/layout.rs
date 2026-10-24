@@ -723,10 +723,10 @@ impl Span {
             matches!(ch as u32, 0x2E80..=0x9FFF | 0xF900..=0xFAFF | 0xFF00..=0xFFEF)
         }
         fn is_cjk_closing(ch: char) -> bool {
-            "，。、！？；：）」』”’…".contains(ch)
+            "，。、！？；：）」』”’…》】〉〕,.;:!?)".contains(ch)
         }
         fn is_cjk_opening(ch: char) -> bool {
-            "（「『“‘".contains(ch)
+            "（「『“‘《【〈〔".contains(ch)
         }
 
         // Checking if the trimmed text fits the line - the whitespace is not being
@@ -831,9 +831,12 @@ impl Span {
                 let can_break_word =
                     !matches!(breaking, LineBreaking::BreakAtWhitespace) || !found_any_whitespace;
                 let next_char = char_indices_iter.peek().map(|(_, c)| *c);
-                let cjk_break = next_char.is_some_and(|next| {
-                    (is_cjk(ch) || is_cjk(next)) && !is_cjk_closing(next) && !is_cjk_opening(ch)
-                });
+                let cjk_pair = next_char.is_some_and(|next| is_cjk(ch) || is_cjk(next));
+                // Breaking here would put closing punctuation at the start of a
+                // line or leave opening punctuation at the end of one.
+                let cjk_forbidden = next_char
+                    .is_some_and(|next| cjk_pair && (is_cjk_closing(next) || is_cjk_opening(ch)));
+                let cjk_break = cjk_pair && !cjk_forbidden;
                 if cjk_break && span_width + char_width + complete_word_end_width <= max_width {
                     // Break after this character, no hyphen needed.
                     line.length = match char_indices_iter.peek() {
@@ -844,7 +847,7 @@ impl Span {
                     line.insert_hyphen_before_line_break = false;
                     line.skip_next_chars = 0;
                     found_any_whitespace = true;
-                } else if have_space_for_break && can_break_word {
+                } else if have_space_for_break && can_break_word && !cjk_forbidden {
                     // Break after this character, append hyphen.
                     line.length = match char_indices_iter.peek() {
                         Some((idx, _)) => *idx,

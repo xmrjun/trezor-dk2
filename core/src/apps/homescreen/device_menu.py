@@ -139,8 +139,9 @@ def _menu_params(
     about_items: list[tuple[str | None, str | None, bool]] = [
         (TR.homescreen__firmware_version, firmware_version, False),
         (TR.homescreen__firmware_type, firmware_type, False),
-        (TR.ble__version, bluetooth_version, False),
     ]
+    if utils.USE_BLE:
+        about_items.append((TR.ble__version, bluetooth_version, False))
     if serial_no is not None:
         about_items.append((TR.sn__title, serial_no, True))
     about_items.append((TR.words__made_in, "Ostrava, Czechia", False))
@@ -504,7 +505,15 @@ async def handle_WipeDevice() -> None:
 async def handle_TurnOff() -> None:
     from trezor import io
 
-    io.pm.hibernate()
+    try:
+        io.pm.hibernate()
+    except RuntimeError:
+        # The board cannot switch itself off (fixed power supply): never leave
+        # it unlocked while the user believes it is off.
+        from apps.common.lock_manager import lock_device
+
+        lock_device()
+        raise ExitDeviceMenu
     raise RuntimeError
 
 

@@ -207,6 +207,8 @@ typedef struct {
   // Active framebuffer
   // (if .addr is 0, the framebuffer is not accessible)
   mpu_area_t active_fb;
+  // Destination framebuffer of a display copy (MPU_MODE_FB_COPY only)
+  mpu_area_t copy_fb;
   // Applet thread-local storage area
   mpu_area_t app_tls;
   // Applet has access to the framebuffer
@@ -421,6 +423,21 @@ void mpu_set_active_fb(const void* addr, size_t size) {
   mpu_reconfig(drv->mode);
 }
 
+void mpu_set_copy_fb(const void* addr, size_t size) {
+  mpu_driver_t* drv = &g_mpu_driver;
+
+  if (!drv->initialized) {
+    return;
+  }
+
+  irq_key_t lock = irq_lock();
+
+  drv->copy_fb.start = (uint32_t)addr;
+  drv->copy_fb.size = size;
+
+  irq_unlock(lock);
+}
+
 bool mpu_inside_active_fb(const void* addr, size_t size) {
   mpu_driver_t* drv = &g_mpu_driver;
 
@@ -511,6 +528,13 @@ mpu_mode_t mpu_reconfig(mpu_mode_t mode) {
     case MPU_MODE_APP_SAES:
     case MPU_MODE_APP:
       SET_REGION( 6, ASSETS_START,             ASSETS_MAXSIZE,     FLASH_DATA,   NO,   YES );
+      break;
+    case MPU_MODE_FB_COPY:
+      if (drv->copy_fb.start != 0) {
+        SET_REGRUN( 6, drv->copy_fb.start,     drv->copy_fb.size,  SRAM,        YES,    NO );
+      } else {
+        DIS_REGION( 6 );
+      }
       break;
     default:
 #ifndef BOARDLOADER

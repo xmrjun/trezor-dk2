@@ -38,6 +38,9 @@ else:
     from trezor import loop
 
     _SHOULD_SUSPEND = False
+    # Set once the power manager refused to suspend (boards with a fixed power
+    # supply, e.g. the D002 discovery kit); the device then just locks.
+    _SUSPEND_UNSUPPORTED = False
     _notify_power_button: loop.mailbox[None] = loop.mailbox()
     notify_bootscreen: loop.mailbox[None] = loop.mailbox()
 
@@ -74,12 +77,20 @@ else:
         """
         from trezor.ui import CURRENT_LAYOUT, display
 
-        global _SHOULD_SUSPEND
+        global _SHOULD_SUSPEND, _SUSPEND_UNSUPPORTED
 
         # fadeout the screen
         backlight_fade(BacklightLevels.NONE)
         # suspend the device
-        suspend_device()
+        try:
+            suspend_device()
+        except RuntimeError:
+            # Suspend is not supported, stay awake and show the lockscreen.
+            _SUSPEND_UNSUPPORTED = True
+            _SHOULD_SUSPEND = False
+            set_homescreen()
+            backlight_fade(BacklightLevels.NORMAL)
+            return
 
         # reconfigure drivers
         display.orientation(storage_device.get_rotation())
@@ -223,7 +234,7 @@ def lock_device_if_unlocked() -> None:
     elif config.is_unlocked():
         lock_device(interrupt_workflow=workflow.autolock_interrupts_workflow)
 
-    if utils.USE_POWER_MANAGER and not utils.EMULATOR:
+    if utils.USE_POWER_MANAGER and not utils.EMULATOR and not _SUSPEND_UNSUPPORTED:
         if workflow.autolock_interrupts_workflow:
             if not config.is_unlocked():
                 # locking during PIN entering should restart the workflow, otherwise the keyboard input field is not cleared

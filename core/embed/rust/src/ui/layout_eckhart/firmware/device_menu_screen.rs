@@ -420,6 +420,17 @@ impl DeviceMenuScreen {
         self.try_resolve_submenu(id).is_some()
     }
 
+    #[cfg(not(feature = "ble"))]
+    fn register_pair_and_connect_menu(
+        &mut self,
+        _paired_devices: Vec<(TString<'static>, Option<[TString<'static>; 2]>), MAX_PAIRED_DEVICES>,
+        _submenu_indices: Vec<u8, MAX_PAIRED_DEVICES>,
+        _connected_idx: Option<u8>,
+    ) {
+        // No Bluetooth on this board: no "Pair & Connect" submenu.
+    }
+
+    #[cfg(feature = "ble")]
     fn register_pair_and_connect_menu(
         &mut self,
         paired_devices: Vec<(TString<'static>, Option<[TString<'static>; 2]>), MAX_PAIRED_DEVICES>,
@@ -462,17 +473,22 @@ impl DeviceMenuScreen {
     fn register_settings_menu(&mut self, ble_enabled: bool) {
         let mut items: Vec<MenuItem, MEDIUM_MENU_ITEMS> = Vec::new();
 
-        let ble_subtext = match ble_enabled {
-            true => Some((
-                TString::from_translation(TR::words__on),
-                Some(&theme::TEXT_MENU_ITEM_SUBTITLE_GREEN),
-            )),
-            _ => Some((TString::from_translation(TR::words__off), None)),
-        };
-        items.add(
-            MenuItem::return_msg(TR::words__bluetooth.into(), DeviceMenuMsg::ToggleBluetooth)
-                .with_subtext(ble_subtext),
-        );
+        #[cfg(feature = "ble")]
+        {
+            let ble_subtext = match ble_enabled {
+                true => Some((
+                    TString::from_translation(TR::words__on),
+                    Some(&theme::TEXT_MENU_ITEM_SUBTITLE_GREEN),
+                )),
+                _ => Some((TString::from_translation(TR::words__off), None)),
+            };
+            items.add(
+                MenuItem::return_msg(TR::words__bluetooth.into(), DeviceMenuMsg::ToggleBluetooth)
+                    .with_subtext(ble_subtext),
+            );
+        }
+        #[cfg(not(feature = "ble"))]
+        let _ = ble_enabled;
 
         if self.has_submenu(DeviceMenuId::Security) {
             items.add(MenuItem::go_to_submenu(
@@ -493,6 +509,9 @@ impl DeviceMenuScreen {
 
     fn register_power_menu(&mut self) {
         let mut items: Vec<MenuItem, MEDIUM_MENU_ITEMS> = Vec::new();
+        // Without a power button (fixed power supply) the device cannot be
+        // switched off and back on, only restarted.
+        #[cfg(feature = "button")]
         items.add(MenuItem::return_msg(
             TR::buttons__turn_off.into(),
             DeviceMenuMsg::TurnOff,

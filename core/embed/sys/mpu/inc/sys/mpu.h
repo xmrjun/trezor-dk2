@@ -48,6 +48,7 @@ typedef enum {
   MPU_MODE_UNUSED_FLASH,  // + unused flash areas (privileged RW)
   MPU_MODE_APP,           // + unprivileged app + Assets (RO)
   MPU_MODE_APP_SAES,      // + unprivileged app + SAES/TAMPER
+  MPU_MODE_FB_COPY,       // + copy destination framebuffer (privileged RW)
 } mpu_mode_t;
 
 /**
@@ -142,5 +143,17 @@ void mpu_set_active_fb(const void* addr, size_t size);
  * `mpu_set_active_fb()`, otherwise `false`.
  */
 bool mpu_inside_active_fb(const void* addr, size_t size);
+
+/**
+ * @brief Sets the framebuffer accessible in `MPU_MODE_FB_COPY`.
+ *
+ * Used by display drivers that copy the active framebuffer into a second
+ * buffer scanned by the display controller (e.g. to rotate it). The area
+ * is mapped privileged RW, non-executable, in addition to the active one.
+ *
+ * @param addr Address of the buffer (NULL to disable)
+ * @param size Size of the buffer
+ */
+void mpu_set_copy_fb(const void* addr, size_t size);
 
 #endif  // KERNEL_MODE

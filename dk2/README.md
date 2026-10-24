@@ -13,7 +13,7 @@ English summary: port of Trezor firmware to the STM32U5G9J-DK2 (D002 model, new 
 
 ## 为什么是 DK2
 
-Trezor 官方的 D002 配置是给 **STM32U5G9J-DK1**（DSI 屏 + Sitronix 触摸）写的。DK1 已经停产，DK2 用同一颗芯片，但屏幕（RGB 并口 RK050HR18）和触摸（GT911）都不同，原版固件刷进去只会黑屏或报 "Touch screen panel was not loaded properly"。
+Trezor 官方的 D002 配置是给 **STM32U5G9J-DK1**（DSI 屏 + Sitronix 触摸）写的。本仓库把 D002 整个型号切换成了 Safe 7 界面和 RGB565，**原版 DK1 的 `-b dk` 配置在这个分支上已经不能用**。DK1 已经停产，DK2 用同一颗芯片，但屏幕（RGB 并口 RK050HR18）和触摸（GT911）都不同，原版固件刷进去只会黑屏或报 "Touch screen panel was not loaded properly"。
 
 ## 改了什么
 
@@ -51,7 +51,7 @@ dk2/build.sh            # 生成 core/build/artifacts/D002/{boardloader,bootload
 
 1. **板子设置**：BOOT0 拨片在 `0 Internal Flash`；JP1（Board Power）跳线在 `STLK` 或 `USB`。
 2. **CN8（ST-LINK）接电脑。** Apple 芯片的 Mac 上 ST-LINK 直插偶尔会 USB 超时，经 Hub 更稳。
-3. **打开 TrustZone**（只需一次，RDP 保持 Level 0，随时可以关回去）：
+3. **打开 TrustZone**（只需一次，RDP 保持 Level 0）。注意：TZEN 打开后**不能直接关回去**，只能在 RDP 从 Level 1 回退到 Level 0 的过程中关闭，而回退会整片擦除芯片：
 
    ```bash
    STM32_Programmer_CLI -c port=SWD mode=HOTPLUG -ob TZEN=1
@@ -73,7 +73,7 @@ python zh_tool.py blob                       # 生成语言包（开发密钥签
 trezorctl set-language translation-D002-zh-CN-2.13.1.bin   # 在设备上确认
 ```
 
-仓库里已经带了生成好的 `cjk/*.bin`（568 个字，三种字号约 600 KB）和语言包 `dk2/zh/translation-D002-zh-CN-2.13.1.bin`，不改翻译的话直接 `trezorctl set-language` 就行。汉字点阵编进固件而不是放在语言包里，是因为语言包的字库区只有 16 位偏移、语言包空间只有 128 KB，放不下。
+仓库里已经带了生成好的 `cjk/*.bin`（570 个字，三种字号约 600 KB）和语言包 `dk2/zh/translation-D002-zh-CN-2.13.1.bin`，不改翻译的话直接 `trezorctl set-language` 就行。汉字点阵编进固件而不是放在语言包里，是因为语言包的字库区只有 16 位偏移、语言包空间只有 128 KB，放不下。
 
 ## 使用
 
@@ -83,11 +83,15 @@ trezorctl set-language translation-D002-zh-CN-2.13.1.bin   # 在设备上确认
 - 24 个单词：用 `trezorctl device setup --backup-type bip39 --strength 256` 创建，或在 Suite 里选。
 - 第 25 个单词（密码短语）：`trezorctl set passphrase on`。
 
+## 安全审查
+
+用两个独立的审查代理（红队找漏洞、蓝队查正确性）审过一遍改动，没有发现 PIN 绕过、种子泄露或内存越界；修复了：自动锁定后黑屏卡死、菜单 "关机" 不关机且保持解锁、点屏幕黑边误触按钮、触摸读取失败被当成松手、U+FFFF 以上字符被显示成常见汉字、旋转拷贝期间整体关闭 MPU（改为单独映射目标显存）、拷贝前未等 DMA2D 完成、无蓝牙板子上的蓝牙菜单、中文标点断行、BOR 阈值（DK2 是 3.3 V）。
+
 ## 踩过的坑
 
 - **刷更小的固件前要擦掉整个固件区**，否则 bootloader 校验失败报 "FIRMWARE CORRUPTED"，还会清空钱包。`dk2/flash.sh firmware` 已处理。
 - **运行时别用 STM32CubeProgrammer 的 HOTPLUG 模式反复读芯片**，会把 USB/I2C 中断搞乱，看起来像触摸和 USB 失灵。
-- 旋转拷贝时如果用一个跨两块显存的 MPU 区，在 bootloader 的内存布局下会和别的区重叠导致死机（lockup），所以拷贝期间临时关闭 MPU。
+- 旋转拷贝时如果用一个跨两块显存的 MPU 区，在 bootloader 的内存布局下会和别的区重叠导致死机（lockup），所以加了一个单独的 MPU 模式 `MPU_MODE_FB_COPY`，拷贝期间只多映射目标显存。
 - Safe 7 界面默认假设有蓝牙、电源键、THP，菜单代码里有多处 `assert`/写死型号，见 `device_menu.py`。
 
 ## 下一步

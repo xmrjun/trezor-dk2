@@ -4,7 +4,8 @@
 // STM32U5G9J-DK2: 5" 800x480 RGB parallel LCD (RK050HR18) driven directly by
 // LTDC (no DSI), GT911 capacitive touch on I2C2.
 
-#define VDD_1V8 1
+// The MCU runs from 3.3 V (BOR level 4, ~2.8 V)
+#define VDD_3V3 1
 
 // The UI is enlarged by DISPLAY_UPSCALE_NUM / DISPLAY_UPSCALE_DEN on the panel
 // (nearest neighbour); used by both the display panel and the touch driver.

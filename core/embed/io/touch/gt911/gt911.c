@@ -59,9 +59,13 @@
   (DISPLAY_RESX * DISPLAY_UPSCALE_NUM / DISPLAY_UPSCALE_DEN)
 #define GT911_WINDOW_X ((GT911_PANEL_WIDTH - GT911_LAYER_WIDTH) / 2)
 #define GT911_WINDOW_Y ((GT911_PANEL_HEIGHT - GT911_LAYER_HEIGHT) / 2)
+#define GT911_WINDOW_W GT911_LAYER_WIDTH
+#define GT911_WINDOW_H GT911_LAYER_HEIGHT
 #else
 #define GT911_WINDOW_X ((GT911_PANEL_WIDTH - DISPLAY_RESX) / 2)
 #define GT911_WINDOW_Y ((GT911_PANEL_HEIGHT - DISPLAY_RESY) / 2)
+#define GT911_WINDOW_W DISPLAY_RESX
+#define GT911_WINDOW_H DISPLAY_RESY
 #endif
 
 typedef struct {
@@ -73,6 +77,9 @@ typedef struct {
   uint32_t read_ticks;
   // Last reported touch state
   uint32_t state;
+  // Set while a touch that started outside the UI window (in the black
+  // margins of the panel) is held; such a touch is ignored until released
+  bool ignore_touch;
 
 } touch_driver_t;
 
@@ -190,21 +197,24 @@ secbool touch_init(void) {
 
   memset(driver, 0, sizeof(touch_driver_t));
 
-  gt911_reset();
-
   driver->i2c_bus = i2c_bus_open(TOUCH_I2C_INSTANCE);
   if (driver->i2c_bus == NULL) {
     goto cleanup;
   }
 
-  // Product ID is the ASCII string "911"
-  uint8_t id[4] = {0};
-  if (sectrue !=
-      gt911_read_regs(driver->i2c_bus, GT911_REG_PRODUCT_ID, id, sizeof(id))) {
-    goto cleanup;
+  // Product ID is the ASCII string "911". The controller may need a moment
+  // after power-up, so retry the reset a few times before giving up (the
+  // bootloader halts if the touch panel cannot be initialized).
+  bool id_ok = false;
+  for (int attempt = 0; attempt < 3 && !id_ok; attempt++) {
+    gt911_reset();
+    uint8_t id[4] = {0};
+    id_ok = sectrue == gt911_read_regs(driver->i2c_bus, GT911_REG_PRODUCT_ID,
+                                       id, sizeof(id)) &&
+            id[0] == '9' && id[1] == '1' && id[2] == '1';
   }
 
-  if (id[0] != '9' || id[1] != '1' || id[2] != '1') {
+  if (!id_ok) {
     goto cleanup;
   }
 
@@ -323,7 +333,9 @@ uint32_t touch_get_state(void) {
   if (nb_touches > 0) {
     if (sectrue != gt911_read_regs(driver->i2c_bus, GT911_REG_POINT1, point,
                                    sizeof(point))) {
-      nb_touches = 0;
+      // Keep the frame unacknowledged and the state unchanged, a failed read
+      // must not turn into a release (which could complete a click)
+      return driver->state;
     }
   }
 
@@ -335,6 +347,20 @@ uint32_t touch_get_state(void) {
   if (nb_touches > 0) {
     int x_raw = point[0] | (point[1] << 8);
     int y_raw = point[2] | (point[3] << 8);
+
+    bool starting = (driver->state & TOUCH_END) || (driver->state == 0);
+    bool outside = x_raw < GT911_WINDOW_X ||
+                   x_raw >= GT911_WINDOW_X + GT911_WINDOW_W ||
+                   y_raw < GT911_WINDOW_Y ||
+                   y_raw >= GT911_WINDOW_Y + GT911_WINDOW_H;
+    if (starting && outside) {
+      // Touches starting in the margins would otherwise be clamped onto the
+      // edge controls of the UI (e.g. the action bar)
+      driver->ignore_touch = true;
+    }
+    if (driver->ignore_touch) {
+      return driver->state;
+    }
 
 #ifdef GT911_ROTATED_90
     // Layer pixel (lx, ly) shows UI pixel
@@ -359,6 +385,7 @@ uint32_t touch_get_state(void) {
       state = TOUCH_MOVE | xy;
     }
   } else {
+    driver->ignore_touch = false;
     if (driver->state & (TOUCH_START | TOUCH_MOVE)) {
       state = (driver->state & ~(TOUCH_START | TOUCH_MOVE)) | TOUCH_END;
     }

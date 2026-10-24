@@ -218,7 +218,7 @@
   "tutorial__menu_appendix": "查看更多信息、退出流程...",
   "tutorial__navigation_ts7": "使用屏幕上的按钮导航和确认操作。",
   "tutorial__one_more_step": "还差一步",
-  "tutorial__power": "使用侧面的电源键开关设备。",
+  "tutorial__power": "插上 USB 即开机，拔掉 USB 即关机。",
   "tutorial__ready_to_use_safe5": "一切就绪，可以开始使用设备了！",
   "tutorial__restart_tutorial": "重新开始教程",
   "tutorial__suite_restart": "随时可以在 Trezor Suite 应用中重新观看本教程。",
