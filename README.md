@@ -1,3 +1,15 @@
+# Trezor 固件 · STM32U5G9J-DK2 移植版（Safe 7 界面 + 中文）
+
+把 Trezor 官方开源固件（2.13.1）移植到 ST 开发板 **STM32U5G9J-DK2**：Safe 7 界面竖屏显示、GT911 触摸、全中文界面，可通过 Trezor Connect 连接 MetaMask 等钱包。
+
+👉 **复现步骤、改动说明、踩坑记录见 [dk2/README.md](dk2/README.md)**
+
+> ⚠️ 仅供学习测试：使用 Trezor 公开开发密钥、芯片未锁（RDP Level 0）、没有安全芯片，**不要放真钱**。
+
+Port of the Trezor firmware to the STM32U5G9J-DK2 (eckhart UI in portrait, GT911 touch, Chinese UI) — see [dk2/README.md](dk2/README.md). For testing only. Original README below.
+
+---
+
 # Trezor Firmware
 
 ![img](https://repository-images.githubusercontent.com/180590388/968e6880-6538-11e9-9da6-4aef78157e94)
