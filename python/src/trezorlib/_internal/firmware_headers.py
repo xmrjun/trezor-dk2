@@ -767,3 +767,62 @@ def parse_image(
         pass
 
     raise ValueError("Unrecognized firmware type")
+
+
+# dk2: sign with our own keys instead of the public development keys. Every
+# "-D / dev keys" signing path (headertool, headertool_pq, build_vendorheader
+# scripts) picks them up from the key file named by $XW_KEYS
+# (dk2/keys/gen_keys.py). Without it, signing with dev keys is refused, so a
+# build can't silently end up signed with keys the whole world knows.
+def _xw_install_keys() -> None:
+    import json
+    import os
+
+    path = os.environ.get("XW_KEYS")
+    if not path:
+
+        def refuse(*args: t.Any, **kwargs: t.Any) -> None:
+            raise click.ClickException("XW_KEYS is not set (dk2/keys/README.md)")
+
+        for cls in (VendorHeader, VendorFirmware, BootloaderImage, SecmonImage):
+            cls.DEV_KEYS = _XwRefusingKeys(refuse)
+        BootloaderV2Image.sign_with_devkeys = refuse  # type: ignore [assignment]
+        return
+
+    with open(path) as f:
+        keys = json.load(f)
+
+    def privs(role: str, n: int) -> list[bytes]:
+        return [bytes.fromhex(k["priv"]) for k in keys[role][:n]]
+
+    def pubs(role: str) -> list[bytes]:
+        return [bytes.fromhex(k["pub"]) for k in keys[role]]
+
+    # 2 signatures each: keys 1 and 2 of the 2-of-3 sets
+    VendorHeader.DEV_KEYS = privs("bootloader", 2)
+    VendorFirmware.DEV_KEYS = privs("vendor", 2)
+    SecmonImage.DEV_KEYS = privs("secmon", 2)
+    BootloaderImage.DEV_KEYS = privs("root_ed25519", 2)
+    BootloaderV2Image.DEV_ED25519_KEYS_PRIVATE = privs("root_ed25519", 2)
+    fw_models.ROOT_SLH_DSA_KEYS_DEV_PRIVATE[:] = privs("root_slh_dsa", 2)
+    fw_models.ROOT_SLH_DSA_KEYS_DEV_PUBLIC[:] = pubs("root_slh_dsa")
+    fw_models.ROOT_ED25519_KEYS_DEV[:] = pubs("root_ed25519")
+
+
+class _XwRefusingKeys(list):
+    """Stands in for DEV_KEYS when $XW_KEYS is unset: any use raises."""
+
+    def __init__(self, refuse: t.Callable[[], None]) -> None:
+        super().__init__()
+        self._refuse = refuse
+
+    def __iter__(self) -> t.Iterator[bytes]:
+        self._refuse()
+        return iter(())
+
+    def __len__(self) -> int:
+        self._refuse()
+        return 0
+
+
+_xw_install_keys()

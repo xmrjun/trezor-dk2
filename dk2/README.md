@@ -7,9 +7,9 @@
 - **简体中文界面**（944 条翻译，汉字点阵编进固件）
 - 通过 USB 连接 Trezor Suite、MetaMask（Trezor Connect）等
 
-> ⚠️ **仅供学习和测试，不要放真钱。** 这是开发版：使用 Trezor 公开的开发密钥签名、芯片 RDP Level 0（调试器可读出全部 Flash）、没有安全芯片。任何能接触板子的人都能读出钱包种子。只用测试网和测试助记词。
+> ⚠️ **仅供学习和测试，只放小额。** 签名用的是**你自己生成的密钥**（不再是 Trezor 公开的开发密钥），芯片可以锁到 RDP Level 1，但板子上没有安全芯片：拿到板子、又有能力做芯片毛刺攻击的人，仍有可能读出种子。
 
-English summary: port of Trezor firmware to the STM32U5G9J-DK2 (D002 model, new board `dk2`) with the eckhart (Safe 7) UI rotated to portrait, GT911 touch and a Chinese translation whose CJK glyphs are compiled into the firmware. Development keys, unlocked chip — for testing only.
+English summary: port of Trezor firmware to the STM32U5G9J-DK2 (D002 model, new board `dk2`) with the eckhart (Safe 7) UI rotated to portrait, GT911 touch and a Chinese translation whose CJK glyphs are compiled into the firmware. Signed with your own key set instead of the public development keys, and lockable to RDP Level 1 (reversible), see `dk2/keys/README.md`. No secure element — small amounts only.
 
 ## 为什么是 DK2
 
@@ -27,6 +27,8 @@ Trezor 官方的 D002 配置是给 **STM32U5G9J-DK1**（DSI 屏 + Sitronix 触�
 | 设备菜单不再写死只给 T3W1 | `core/src/apps/homescreen/*.py`、`core/embed/upymod/build.rs` |
 | 内置中文字库 + 中文断行 | `rust/src/ui/display/cjk.rs`、`cjk/*.bin`、`rust/src/ui/component/text/layout.rs` |
 | 中文翻译和工具 | `dk2/zh/` |
+| 自己的签名密钥（替换全部开发密钥）、生成/签名/校验工具 | `dk2/keys/`、`sec/image/`、`rust/src/{translations,definitions}/`、`trezorlib/_internal/firmware_headers.py` |
+| 可逆的 RDP Level 1：boardloader 不改 RDP、关 SWD 防拆、bootloader 菜单 Factory reset 自动降级 | `sec/option_bytes/stm32u5/option_bytes.c`、`sec/tamper/stm32u5/tamper.c`、`projects/bootloader/workflow/wf_bootloader.c` |
 
 ## 需要的东西
 
@@ -44,8 +46,13 @@ Trezor 官方的 D002 配置是给 **STM32U5G9J-DK1**（DSI 屏 + Sitronix 触�
 git submodule update --init --recursive
 uv sync
 export PATH="<arm-gnu-toolchain>/bin:$PATH"
-dk2/build.sh            # 生成 core/build/artifacts/D002/{boardloader,bootloader,firmware}.bin
+# 第一次：生成自己的密钥（私钥文件，放在仓库外面，离线备份）
+.venv/bin/python dk2/keys/gen_keys.py ~/keys/dk2/keys.json dk2
+XW_KEYS=~/keys/dk2/keys.json dk2/build.sh   # 生成 core/build/artifacts/D002/{boardloader,bootloader,firmware}.bin
+.venv/bin/python dk2/keys/verify_images.py ~/keys/dk2/keys.json   # 只用公钥核对：全是我们的签名，没有开发密钥
 ```
+
+没设 `XW_KEYS` 时签名工具会直接拒绝，不会悄悄用开发密钥签。
 
 ## 刷机
 
@@ -61,6 +68,8 @@ dk2/build.sh            # 生成 core/build/artifacts/D002/{boardloader,bootload
 4. **刷入**：`dk2/flash.sh`（整片擦除后写入三部分）。以后只更新固件用 `dk2/flash.sh firmware`（保留钱包和语言包）。
 5. 第一次启动时 boardloader 会自动设置安全水位线和 HDP 隐藏区（Trezor 开发版正常行为）。
 
+**要锁 RDP Level 1**（调试器读不出 Flash），顺序很重要，见 `dk2/keys/README.md`：只刷 boardloader + bootloader → `-ob RDP=0xBB` → 拔掉两根线断电 → 只插 CN2，在 bootloader 里经 USB 装固件 → 语言包 → 建/恢复钱包。**钱包必须在锁住之后再建**：存储的密钥经过芯片的硬件密钥，RDP 0 和 1 下不一样，锁之前建的钱包锁之后打不开。降级（会整片擦除）：bootloader 菜单 → Factory reset，或 `STM32_Programmer_CLI -c port=SWD mode=HOTPLUG -ob RDP=0xAA TZEN=0`。
+
 ## 中文
 
 ```bash
@@ -69,11 +78,11 @@ cd dk2/zh
 #   https://github.com/notofonts/noto-cjk/tree/main/Sans/SubsetOTF/SC
 python zh_tool.py json                       # 合并翻译 -> zh.json
 python gen_cjk_font.py zh.json ../../core/embed/rust/src/ui/display/cjk   # 只在改了翻译时需要
-python zh_tool.py blob                       # 生成语言包（开发密钥签名）
-trezorctl set-language translation-D002-zh-CN-2.13.1.bin   # 在设备上确认
+XW_KEYS=~/keys/dk2/keys.json python zh_tool.py blob   # 生成语言包（用自己的翻译密钥签名）
+trezorctl set language translation-D002-zh-CN-2.13.1.bin   # 在设备上确认
 ```
 
-仓库里已经带了生成好的 `cjk/*.bin`（570 个字，三种字号约 600 KB）和语言包 `dk2/zh/translation-D002-zh-CN-2.13.1.bin`，不改翻译的话直接 `trezorctl set-language` 就行。汉字点阵编进固件而不是放在语言包里，是因为语言包的字库区只有 16 位偏移、语言包空间只有 128 KB，放不下。
+仓库里已经带了生成好的 `cjk/*.bin`（570 个字，三种字号约 600 KB）。仓库里的语言包是用作者的密钥签的，**你的固件只认你自己签的语言包**，所以先跑一遍 `zh_tool.py blob`。汉字点阵编进固件而不是放在语言包里，是因为语言包的字库区只有 16 位偏移、语言包空间只有 128 KB，放不下。
 
 ## 使用
 
@@ -81,7 +90,9 @@ trezorctl set-language translation-D002-zh-CN-2.13.1.bin   # 在设备上确认
 - **设了 PIN 之后，开机要先在屏幕上输 PIN 解锁，USB 才会打开**，解锁前电脑看不到设备。
 - 同一时间只能有一个程序连设备。装了 OneKey Bridge 的电脑，它会抢占这台设备（USB ID 相同），先退出它。
 - 24 个单词：用 `trezorctl device setup --backup-type bip39 --strength 256` 创建，或在 Suite 里选。
-- 第 25 个单词（密码短语）：`trezorctl set passphrase on`。
+- 第 25 个单词（密码短语）：`trezorctl set passphrase on`（Safe 7 的设备菜单里本来就没有这个开关）。
+- **Trezor Suite**：固件不是官方的，"固件真实性检查" 永远不过，新版 Suite 会把收款地址的复制/验证按钮锁成灰色。在 Suite 设置 → 设备 → 高级设置里关掉 "固件真实性检查"。
+- bootloader 界面要先点 **Initiate connection**，电脑才能看到它。
 
 ## 安全审查
 
@@ -93,10 +104,14 @@ trezorctl set-language translation-D002-zh-CN-2.13.1.bin   # 在设备上确认
 - **运行时别用 STM32CubeProgrammer 的 HOTPLUG 模式反复读芯片**，会把 USB/I2C 中断搞乱，看起来像触摸和 USB 失灵。
 - 旋转拷贝时如果用一个跨两块显存的 MPU 区，在 bootloader 的内存布局下会和别的区重叠导致死机（lockup），所以加了一个单独的 MPU 模式 `MPU_MODE_FB_COPY`，拷贝期间只多映射目标显存。
 - Safe 7 界面默认假设有蓝牙、电源键、THP，菜单代码里有多处 `assert`/写死型号，见 `device_menu.py`。
+- **原版 PRODUCTION 编译第一次开机就把芯片永久锁成 RDP Level 2**，还会每次开机拿仓库里签名无效的 bootloader 去 "升级"。本分支直接禁止 PRODUCTION 编译。
+- 原版的代币/网络定义（definitions）也认开发密钥，谁都能伪造代币信息；本分支一并换成自己的密钥。
+- 用调试器锁完 RDP 1 后，必须**拔掉 CN8 和 CN2 彻底断电**一次，否则芯片认为调试器还在、禁止访问 Flash（黑屏），这时开机还会写坏钱包存储。
+- 从 RDP 1 降级后 TZEN 会变回 0，刷机前要再 `-ob TZEN=1`；SECBOOTADD0 / BOOT_LOCK 会保留。
 
 ## 下一步
 
-外接 Infineon OPTIGA Trust M V3 安全芯片（I2C1 PG13/PG14，RST PB11）、换成自己的签名密钥、锁 RDP Level 1，才能考虑真正使用。
+外接 Infineon OPTIGA Trust M V3 安全芯片（I2C1 PG13/PG14，RST PB11），PIN 次数由安全芯片限制，才能考虑放更多钱。
 
 ## 许可
 

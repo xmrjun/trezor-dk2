@@ -29,12 +29,15 @@
 #pragma GCC optimize( \
     "no-stack-protector")  // applies to all functions in this file
 
+// dk2: the RDP level is never set here. We lock to Level 1 by hand
+// (STM32_Programmer_CLI -ob rdp=0xBB) and leave it with a regression, which
+// erases the whole flash (option_bytes_rdp_regression() or the debugger).
+// The boardloader keeps whatever level the chip has: forcing Level 0 on a
+// Level 1 chip would itself be a regression and erase everything on every
+// boot. Level 2 (permanent) is never written. Stock PRODUCTION builds write
+// Level 2 on first boot, so they are refused here altogether.
 #if PRODUCTION
-#define WANT_RDP_LEVEL (OB_RDP_LEVEL_2)
-#define WANT_WRP_PAGE_START BOARDLOADER_SECTOR_START
-#define WANT_WRP_PAGE_END BOARDLOADER_SECTOR_END
-#else
-#define WANT_RDP_LEVEL (OB_RDP_LEVEL_0)
+#error "dk2: PRODUCTION would lock the chip to RDP Level 2 (irreversible)"
 #endif
 
 #ifdef VDD_3V3
@@ -80,8 +83,7 @@ _Static_assert(SECRET_SECTOR_START == 0, "secret sector start must be 0");
    FLASH_OPTR_SRAM3_ECC | FLASH_OPTR_DUALBANK | FLASH_OPTR_WWDG_SW |    \
    FLASH_OPTR_IWDG_STOP | FLASH_OPTR_IWDG_STDBY | FLASH_OPTR_IWDG_SW |  \
    FLASH_OPTR_SRAM_RST | FLASH_OPTR_nRST_SHDW | FLASH_OPTR_nRST_STDBY | \
-   FLASH_OPTR_nRST_STOP | WANT_BOR_LEVEL |                              \
-   (WANT_RDP_LEVEL << FLASH_OPTR_RDP_Pos))
+   FLASH_OPTR_nRST_STOP | WANT_BOR_LEVEL)
 
 #define FALSH_SECBOOTADD0R_VALUE \
   ((BOARDLOADER_START & 0xFFFFFF80) | FLASH_SECBOOTADD0R_BOOT_LOCK | 0x7C)
@@ -124,8 +126,8 @@ static uint32_t flash_wait_and_clear_status_flags(void) {
 static secbool flash_check_option_bytes(void) {
   flash_wait_and_clear_status_flags();
   // check values stored in flash interface registers
-  if (FLASH->OPTR !=
-      FLASH_OPTR_VALUE) {  // ignore bits 0 and 1 because they are control bits
+  // dk2: everything but the RDP level, see the top of the file
+  if ((FLASH->OPTR & ~FLASH_OPTR_RDP_Msk) != FLASH_OPTR_VALUE) {
     return secfalse;
   }
 
@@ -221,9 +223,8 @@ static uint32_t flash_set_option_bytes(void) {
   FLASH->OEM2KEYR1 = 0xFFFFFFFF;
   FLASH->OEM2KEYR2 = 0xFFFFFFFF;
 
-  FLASH->OPTR =
-      FLASH_OPTR_VALUE;  // WARNING: dev board safe unless you compile for
-  // PRODUCTION or change this value!!!
+  // dk2: keep the current RDP level, see the top of the file
+  FLASH->OPTR = FLASH_OPTR_VALUE | (FLASH->OPTR & FLASH_OPTR_RDP_Msk);
 
   FLASH_WaitForLastOperation(HAL_MAX_DELAY);
 
@@ -242,6 +243,35 @@ static uint32_t flash_set_option_bytes(void) {
     return 0;
   }
   return result;
+}
+
+uint8_t option_bytes_rdp_level(void) {
+  return (FLASH->OPTR & FLASH_OPTR_RDP_Msk) >> FLASH_OPTR_RDP_Pos;
+}
+
+void option_bytes_rdp_regression(void) {
+  // dk2: back to RDP Level 0 with TrustZone off. The option byte loading
+  // that follows erases ALL flash (boardloader, bootloader, firmware,
+  // storage), SRAM2 and the backup registers; the chip comes back empty and
+  // has to be flashed over SWD again. Needs the OEM1 key unset, which
+  // flash_set_option_bytes() makes sure of. TZEN can only be cleared
+  // together with such a regression.
+  ensure(flash_unlock_write(), "flash unlock failed");
+  flash_wait_and_clear_status_flags();
+  flash_unlock_option_bytes();
+  flash_wait_and_clear_status_flags();
+
+  FLASH->OPTR = (FLASH->OPTR & ~(FLASH_OPTR_RDP_Msk | FLASH_OPTR_TZEN)) |
+                (OB_RDP_LEVEL_0 << FLASH_OPTR_RDP_Pos);
+  FLASH_WaitForLastOperation(HAL_MAX_DELAY);
+
+  FLASH->NSCR |= FLASH_NSCR_OPTSTRT;
+  flash_wait_and_clear_status_flags();
+  FLASH_WaitForLastOperation(HAL_MAX_DELAY);
+
+  FLASH->NSCR |= FLASH_NSCR_OBL_LAUNCH;  // resets, the regression runs now
+  for (;;) {
+  }
 }
 
 void option_bytes_check_oem_keys(void) {

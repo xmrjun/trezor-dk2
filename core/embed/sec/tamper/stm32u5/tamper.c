@@ -142,13 +142,19 @@ bool tamper_init(void) {
        TAMP_CR1_ITAMP2E |   // temperature monitoring
        TAMP_CR1_ITAMP3E |   // LSE monitoring (LSECSS)
        TAMP_CR1_ITAMP5E |   // RTC calendar overflow
-       TAMP_CR1_ITAMP6E |   // JTAG/SWD access when RDP > 0
+       // dk2: no ITAMP6 (JTAG/SWD access when RDP > 0). It would turn every
+       // debugger attach on a Level 1 chip into a tamper reset loop, and the
+       // debugger is our way back to Level 0 (RDP regression).
        TAMP_CR1_ITAMP7E |   // ADC4 analog watchdog monitoring 1
        TAMP_CR1_ITAMP8E |   // Monotonic counter 1 overflow
        TAMP_CR1_ITAMP9E |   // Crypto peripherals fault (SAES, AES, PKA, TRNG)
        TAMP_CR1_ITAMP11E |  // IWDG reset when tamper flag is set
        TAMP_CR1_ITAMP12E |  // ADC4 analog watchdog monitoring 2
        TAMP_CR1_ITAMP13E);  // ADC4 analog watchdog monitoring 3
+
+  // dk2: TAMP lives in the backup domain and keeps ITAMP6E from an earlier
+  // stock build across resets; clear it explicitly
+  TAMP->CR1 &= ~TAMP_CR1_ITAMP6E;
 
   // Switch all tampers to the "confirmed" mode
   // => all secrets all deleted when any tamper event is triggered
@@ -161,7 +167,7 @@ bool tamper_init(void) {
 
   // Enable all interrupts for all internal tampers
   TAMP->IER = TAMP_IER_TAMP2IE | TAMP_IER_ITAMP1IE | TAMP_IER_ITAMP2IE |
-              TAMP_IER_ITAMP3IE | TAMP_IER_ITAMP5IE | TAMP_IER_ITAMP6IE |
+              TAMP_IER_ITAMP3IE | TAMP_IER_ITAMP5IE |
               TAMP_IER_ITAMP7IE | TAMP_IER_ITAMP8IE | TAMP_IER_ITAMP9IE |
               TAMP_IER_ITAMP11IE | TAMP_IER_ITAMP12IE | TAMP_IER_ITAMP13IE;
 

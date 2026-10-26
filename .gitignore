@@ -14,3 +14,7 @@ proto.gv*
 crypto/tests/libtrezor-crypto.so.dSYM/
 .hypothesis/
 /.clangd
+# dk2: generated from our key set by dk2/keys/apply_keys.py
+core/embed/sec/image/inc/sec/xw_keys.h
+core/embed/rust/src/translations/xw_public_keys.rs
+dk2/keys/build/

@@ -5,7 +5,7 @@ layout.
   zh_tool.py json   - merge zh_strings_*.json into zh.json (untranslated keys
                       stay English)
   zh_tool.py blob   - build translation-D002-zh-CN-<version>.bin, signed with
-                      the development keys (accepted by --bootloader-devel builds)
+                      our translation keys from $XW_KEYS (dk2/keys/)
 
 The CJK glyphs are not part of the blob (they would not fit), they are built
 into the firmware, see gen_cjk_font.py and rust/src/ui/display/cjk.rs.
@@ -13,6 +13,7 @@ into the firmware, see gen_cjk_font.py and rust/src/ui/display/cjk.rs.
 
 import dataclasses
 import json
+import os
 import sys
 from pathlib import Path
 
@@ -23,7 +24,15 @@ HERE = Path(__file__).parent
 TRANSLATIONS = HERE.parents[1] / "core/translations"
 ZH_JSON = HERE / "zh.json"
 LAYOUT = "Eckhart"
-PRIVATE_KEYS_DEV = [byte * 32 for byte in (b"\xdd", b"\xde", b"\xdf")]
+
+
+def private_keys() -> list[bytes]:
+    """Our translation signing keys from $XW_KEYS (dk2/keys/gen_keys.py)."""
+    path = os.environ.get("XW_KEYS")
+    if not path:
+        sys.exit("XW_KEYS is not set (dk2/keys/README.md)")
+    keys = json.loads(Path(path).read_text())["translations"]
+    return [bytes.fromhex(k["priv"]) for k in keys]
 
 
 def load_zh_strings() -> dict[str, str]:
@@ -93,7 +102,7 @@ def make_blob() -> None:
     )
     tree = merkle_tree.MerkleTree([blob.header_bytes])
     signature = cosi.sign_with_privkeys(
-        tree.get_root_hash(), PRIVATE_KEYS_DEV, deterministic=True
+        tree.get_root_hash(), private_keys(), deterministic=True
     )
     blob.proof = translations.Proof(
         merkle_proof=tree.get_proof(blob.header_bytes),

@@ -40,4 +40,17 @@ secbool option_bytes_configure(void);
  */
 void option_bytes_check_oem_keys(void);
 
+/**
+ * @brief dk2: current RDP level byte (0xAA Level 0, 0x55 Level 0.5,
+ * 0xCC Level 2, anything else Level 1).
+ */
+uint8_t option_bytes_rdp_level(void);
+#define OPTION_BYTES_RDP_LEVEL_0 0xAA
+
+/**
+ * @brief dk2: regress RDP to Level 0 with TrustZone off. Erases the whole
+ * flash, SRAM2 and backup registers; does not return.
+ */
+void __attribute__((noreturn)) option_bytes_rdp_regression(void);
+
 #endif  // SECURE_MODE
